@@ -39,9 +39,26 @@ async function refreshToken(clientId, clientSecret, refreshToken) {
     }
 }
 
-// Token refresh endpoint
+// Token refresh endpoint - POST version
 app.post('/auth/refresh', async (req, res) => {
     const { clientId, clientSecret, refreshToken: userRefreshToken } = req.body;
+    
+    if (!clientId || !clientSecret || !userRefreshToken) {
+        return res.status(400).json({ error: 'Missing credentials' });
+    }
+    
+    const token = await refreshToken(clientId, clientSecret, userRefreshToken);
+    
+    if (token) {
+        res.json({ access_token: token, expires_in: 3600 });
+    } else {
+        res.status(401).json({ error: 'Token refresh failed' });
+    }
+});
+
+// Token refresh endpoint - GET version (for Playdate compatibility)
+app.get('/auth/refresh', async (req, res) => {
+    const { clientId, clientSecret, refreshToken: userRefreshToken } = req.query;
     
     if (!clientId || !clientSecret || !userRefreshToken) {
         return res.status(400).json({ error: 'Missing credentials' });
