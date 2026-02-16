@@ -60,10 +60,10 @@ app.post('/auth/refresh', async (req, res) => {
 app.all('/spotify/*', async (req, res) => {
     console.log('📥 Request:', req.method, req.params[0]);
     const spotifyPath = req.params[0];
-    const authHeader = req.headers.authorization;
     
-    if (!authHeader) {
-        return res.status(401).json({ error: 'No authorization header' });
+    // Check if we have a valid token
+    if (!spotifyToken || Date.now() >= tokenExpiry) {
+        return res.status(401).json({ error: 'No valid token. Call /auth/refresh first.' });
     }
     
     try {
@@ -71,7 +71,7 @@ app.all('/spotify/*', async (req, res) => {
             method: req.method,
             url: `https://api.spotify.com/v1/${spotifyPath}`,
             headers: {
-                'Authorization': authHeader,
+                'Authorization': `Bearer ${spotifyToken}`,
                 'Content-Type': 'application/json'
             },
             params: req.query,
