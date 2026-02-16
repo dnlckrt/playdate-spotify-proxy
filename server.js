@@ -41,13 +41,13 @@ async function refreshToken(clientId, clientSecret, refreshToken) {
 
 // Token refresh endpoint
 app.post('/auth/refresh', async (req, res) => {
-    const { clientId, clientSecret, refreshToken } = req.body;
+    const { clientId, clientSecret, refreshToken: userRefreshToken } = req.body;
     
-    if (!clientId || !clientSecret || !refreshToken) {
+    if (!clientId || !clientSecret || !userRefreshToken) {
         return res.status(400).json({ error: 'Missing credentials' });
     }
     
-    const token = await refreshToken(clientId, clientSecret, refreshToken);
+    const token = await refreshToken(clientId, clientSecret, userRefreshToken);
     
     if (token) {
         res.json({ access_token: token, expires_in: 3600 });
