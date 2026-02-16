@@ -12,6 +12,11 @@ app.use(cors());
 let spotifyToken = null;
 let tokenExpiry = 0;
 
+// HARDCODED CREDENTIALS - Change these to your values!
+const SPOTIFY_CLIENT_ID = "5c33c0c9cfd645688c80d577666a1711";
+const SPOTIFY_CLIENT_SECRET = "0bcf51df874649bbb74a52ebc1d102de";
+const SPOTIFY_REFRESH_TOKEN = "AQAuLogtlUeFjALskTBpn-7E5GbB1ZKE1AO2eJESL60q0oyBlprPDq2UyQiVJLCWS5b-ugJUvNJnLZFzO_kQ34OWDxGTpUSQX_JxEmaA1jDUluQLlZKa1nveD3lOpJAurFg";
+
 // Token refresh
 async function refreshToken(clientId, clientSecret, refreshToken) {
     try {
@@ -68,6 +73,19 @@ app.get('/auth/refresh', async (req, res) => {
     
     if (token) {
         res.json({ access_token: token, expires_in: 3600 });
+    } else {
+        res.status(401).json({ error: 'Token refresh failed' });
+    }
+});
+
+// SIMPLE refresh endpoint - uses hardcoded credentials (for Playdate)
+app.get('/refresh', async (req, res) => {
+    console.log('🔄 Simple refresh requested...');
+    
+    const token = await refreshToken(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REFRESH_TOKEN);
+    
+    if (token) {
+        res.json({ success: true, expires_in: 3600 });
     } else {
         res.status(401).json({ error: 'Token refresh failed' });
     }
