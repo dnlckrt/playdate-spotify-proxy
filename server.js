@@ -92,16 +92,106 @@ app.get('/player', async (req, res) => {
         );
         
         const data = response.data;
+        const images = data.item?.album?.images || [];
+        const coverUrl = images[images.length - 1]?.url || null;
+        
         res.json({
             is_playing: data.is_playing,
             progress_ms: data.progress_ms,
             track_name: data.item?.name || 'Unknown',
             artist_name: data.item?.artists?.[0]?.name || 'Unknown',
-            duration_ms: data.item?.duration_ms || 0
+            album_name: data.item?.album?.name || '',
+            duration_ms: data.item?.duration_ms || 0,
+            cover_url: coverUrl,
+            shuffle: data.shuffle_state,
+            repeat_mode: data.repeat_state
         });
         console.log('✅ Player:', data.item?.name);
     } catch (error) {
         console.error('❌ Player error:', error.response?.data || error.message);
+        res.status(error.response?.status || 500).json({ error: error.message });
+    }
+});
+
+// Playlists
+app.get('/playlists', async (req, res) => {
+    console.log('📥 Playlists');
+    const token = await ensureToken();
+    if (!token) return res.status(401).json({ error: 'No token' });
+    
+    try {
+        const response = await axios.get(
+            'https://api.spotify.com/v1/me/playlists?limit=20',
+            { headers: { 'Authorization': `Bearer ${token}` } }
+        );
+        const playlists = response.data.items.map(p => ({ id: p.id, name: p.name }));
+        res.json({ playlists });
+        console.log('✅ Playlists:', playlists.length);
+    } catch (error) {
+        console.error('❌', error.response?.data || error.message);
+        res.status(error.response?.status || 500).json({ error: error.message });
+    }
+});
+
+// Play playlist
+app.post('/play_playlist', async (req, res) => {
+    const playlistId = req.query.id;
+    console.log('📥 Play playlist:', playlistId);
+    const token = await ensureToken();
+    if (!token) return res.status(401).json({ error: 'No token' });
+    
+    try {
+        await axios.put(
+            'https://api.spotify.com/v1/me/player/play',
+            { context_uri: `spotify:playlist:${playlistId}` },
+            { headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } }
+        );
+        res.json({ success: true });
+        console.log('✅ Playing playlist');
+    } catch (error) {
+        console.error('❌', error.response?.data || error.message);
+        res.status(error.response?.status || 500).json({ error: error.message });
+    }
+});
+
+// Shuffle
+app.post('/shuffle', async (req, res) => {
+    const shuffleState = req.query.state;
+    console.log('📥 Shuffle:', shuffleState);
+    const token = await ensureToken();
+    if (!token) return res.status(401).json({ error: 'No token' });
+    
+    try {
+        await axios.put(
+            `https://api.spotify.com/v1/me/player/shuffle?state=${shuffleState}`,
+            {},
+            { headers: { 'Authorization': `Bearer ${token}` } }
+        );
+        res.json({ success: true });
+        console.log('✅ Shuffle:', shuffleState);
+    } catch (error) {
+        console.error('❌', error.response?.data || error.message);
+        res.status(error.response?.status || 500).json({ error: error.message });
+    }
+});
+
+// Repeat
+app.post('/repeat', async (req, res) => {
+    const repeatState = req.query.state;
+    console.log('📥 Repeat:', repeatState);
+    const token = await ensureToken();
+    if (!token) return res.status(401).json({ error: 'No token' });
+    
+    try {
+        await axios.put(
+            `https://api.spotify.com/v1/me/player/repeat?state=${repeatState}`,
+            {},
+            { headers: { 'Authorization': `Bearer ${token}` } }
+        );
+        res.json({ success: true });
+        console.log('✅ Repeat:', repeatState);
+    } catch (error) {
+        console.error('❌', error.response?.data || error.message);
         res.status(error.response?.status || 500).json({ error: error.message });
     }
 });
