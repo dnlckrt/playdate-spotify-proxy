@@ -12,24 +12,24 @@ app.use(cors());
 let spotifyToken = null;
 let tokenExpiry = 0;
 
-// HARDCODED CREDENTIALS - Change these to your values!
+// CREDENTIALS (hardcoded - no need to send from Playdate!)
 const SPOTIFY_CLIENT_ID = "5c33c0c9cfd645688c80d577666a1711";
 const SPOTIFY_CLIENT_SECRET = "0bcf51df874649bbb74a52ebc1d102de";
 const SPOTIFY_REFRESH_TOKEN = "AQAuLogtlUeFjALskTBpn-7E5GbB1ZKE1AO2eJESL60q0oyBlprPDq2UyQiVJLCWS5b-ugJUvNJnLZFzO_kQ34OWDxGTpUSQX_JxEmaA1jDUluQLlZKa1nveD3lOpJAurFg";
 
 // Token refresh
-async function refreshToken(clientId, clientSecret, refreshToken) {
+async function doRefreshToken() {
     try {
         const response = await axios.post(
             'https://accounts.spotify.com/api/token',
             new URLSearchParams({
                 grant_type: 'refresh_token',
-                refresh_token: refreshToken
+                refresh_token: SPOTIFY_REFRESH_TOKEN
             }),
             {
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
-                    'Authorization': 'Basic ' + Buffer.from(clientId + ':' + clientSecret).toString('base64')
+                    'Authorization': 'Basic ' + Buffer.from(SPOTIFY_CLIENT_ID + ':' + SPOTIFY_CLIENT_SECRET).toString('base64')
                 }
             }
         );
@@ -44,90 +44,19 @@ async function refreshToken(clientId, clientSecret, refreshToken) {
     }
 }
 
-// Token refresh endpoint - POST version
-app.post('/auth/refresh', async (req, res) => {
-    const { clientId, clientSecret, refreshToken: userRefreshToken } = req.body;
-    
-    if (!clientId || !clientSecret || !userRefreshToken) {
-        return res.status(400).json({ error: 'Missing credentials' });
+// Auto-refresh token before it expires
+async function ensureToken() {
+    if (!spotifyToken || Date.now() >= tokenExpiry - 60000) {
+        await doRefreshToken();
     }
-    
-    const token = await refreshToken(clientId, clientSecret, userRefreshToken);
-    
-    if (token) {
-        res.json({ access_token: token, expires_in: 3600 });
-    } else {
-        res.status(401).json({ error: 'Token refresh failed' });
-    }
-});
-
-// Token refresh endpoint - GET version (for Playdate compatibility)
-app.get('/auth/refresh', async (req, res) => {
-    const { clientId, clientSecret, refreshToken: userRefreshToken } = req.query;
-    
-    if (!clientId || !clientSecret || !userRefreshToken) {
-        return res.status(400).json({ error: 'Missing credentials' });
-    }
-    
-    const token = await refreshToken(clientId, clientSecret, userRefreshToken);
-    
-    if (token) {
-        res.json({ access_token: token, expires_in: 3600 });
-    } else {
-        res.status(401).json({ error: 'Token refresh failed' });
-    }
-});
-
-// SIMPLE refresh endpoint - uses hardcoded credentials (for Playdate)
-app.get('/refresh', async (req, res) => {
-    console.log('🔄 Simple refresh requested...');
-    
-    const token = await refreshToken(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REFRESH_TOKEN);
-    
-    if (token) {
-        res.json({ success: true, expires_in: 3600 });
-    } else {
-        res.status(401).json({ error: 'Token refresh failed' });
-    }
-});
-
-// Spotify API Proxy
-app.all('/spotify/*', async (req, res) => {
-    console.log('📥 Request:', req.method, req.params[0]);
-    const spotifyPath = req.params[0];
-    
-    // Check if we have a valid token
-    if (!spotifyToken || Date.now() >= tokenExpiry) {
-        return res.status(401).json({ error: 'No valid token. Call /auth/refresh first.' });
-    }
-    
-    try {
-        const response = await axios({
-            method: req.method,
-            url: `https://api.spotify.com/v1/${spotifyPath}`,
-            headers: {
-                'Authorization': `Bearer ${spotifyToken}`,
-                'Content-Type': 'application/json'
-            },
-            params: req.query,
-            data: req.body
-        });
-        
-        console.log('✅ Success:', req.method, req.params[0]);
-        res.json(response.data);
-    } catch (error) {
-        console.error(`❌ Spotify API Error [${req.method} ${spotifyPath}]:`, error.response?.data || error.message);
-        res.status(error.response?.status || 500).json(
-            error.response?.data || { error: 'Proxy error' }
-        );
-    }
-});
+    return spotifyToken;
+}
 
 // Health check
 app.get('/health', (req, res) => {
     console.log('💓 Health check');
-    res.json({ 
-        status: 'ok', 
+    res.json({
+        status: 'ok',
         hasToken: !!spotifyToken,
         tokenExpiry: new Date(tokenExpiry).toISOString(),
         timestamp: new Date().toISOString(),
@@ -135,28 +64,174 @@ app.get('/health', (req, res) => {
     });
 });
 
-// Root endpoint
-app.get('/', (req, res) => {
-    res.json({ 
-        message: '🎵 Spotify Proxy for Playdate',
-        status: 'running',
-        endpoints: {
-            health: '/health',
-            auth: '/auth/refresh',
-            spotify: '/spotify/*'
-        },
-        docs: 'Send requests to /spotify/* endpoints with proper Authorization header'
-    });
+// Simple refresh endpoint (called by Playdate on startup)
+app.get('/refresh', async (req, res) => {
+    console.log('🔄 Refresh requested');
+    const token = await doRefreshToken();
+    
+    if (token) {
+        res.json({ success: true });
+    } else {
+        res.status(401).json({ error: 'Token refresh failed' });
+    }
 });
 
-// Start server
+// Simplified player endpoint
+app.get('/player', async (req, res) => {
+    console.log('📥 Player');
+    const token = await ensureToken();
+    
+    if (!token) {
+        return res.status(401).json({ error: 'No token' });
+    }
+    
+    try {
+        const response = await axios.get(
+            'https://api.spotify.com/v1/me/player',
+            { headers: { 'Authorization': `Bearer ${token}` } }
+        );
+        
+        const data = response.data;
+        res.json({
+            is_playing: data.is_playing,
+            progress_ms: data.progress_ms,
+            track_name: data.item?.name || 'Unknown',
+            artist_name: data.item?.artists?.[0]?.name || 'Unknown',
+            duration_ms: data.item?.duration_ms || 0
+        });
+        console.log('✅ Player:', data.item?.name);
+    } catch (error) {
+        console.error('❌ Player error:', error.response?.data || error.message);
+        res.status(error.response?.status || 500).json({ error: error.message });
+    }
+});
+
+// Play
+app.post('/spotify/me/player/play', async (req, res) => {
+    console.log('📥 Play');
+    const token = await ensureToken();
+    if (!token) return res.status(401).json({ error: 'No token' });
+    
+    try {
+        await axios.put(
+            'https://api.spotify.com/v1/me/player/play',
+            {},
+            { headers: { 'Authorization': `Bearer ${token}` } }
+        );
+        res.json({ success: true });
+        console.log('✅ Playing');
+    } catch (error) {
+        console.error('❌', error.response?.data || error.message);
+        res.status(error.response?.status || 500).json({ error: error.message });
+    }
+});
+
+// Pause
+app.post('/spotify/me/player/pause', async (req, res) => {
+    console.log('📥 Pause');
+    const token = await ensureToken();
+    if (!token) return res.status(401).json({ error: 'No token' });
+    
+    try {
+        await axios.put(
+            'https://api.spotify.com/v1/me/player/pause',
+            {},
+            { headers: { 'Authorization': `Bearer ${token}` } }
+        );
+        res.json({ success: true });
+        console.log('✅ Paused');
+    } catch (error) {
+        console.error('❌', error.response?.data || error.message);
+        res.status(error.response?.status || 500).json({ error: error.message });
+    }
+});
+
+// Next
+app.post('/spotify/me/player/next', async (req, res) => {
+    console.log('📥 Next');
+    const token = await ensureToken();
+    if (!token) return res.status(401).json({ error: 'No token' });
+    
+    try {
+        await axios.post(
+            'https://api.spotify.com/v1/me/player/next',
+            {},
+            { headers: { 'Authorization': `Bearer ${token}` } }
+        );
+        res.json({ success: true });
+        console.log('✅ Next');
+    } catch (error) {
+        console.error('❌', error.response?.data || error.message);
+        res.status(error.response?.status || 500).json({ error: error.message });
+    }
+});
+
+// Previous
+app.post('/spotify/me/player/previous', async (req, res) => {
+    console.log('📥 Previous');
+    const token = await ensureToken();
+    if (!token) return res.status(401).json({ error: 'No token' });
+    
+    try {
+        await axios.post(
+            'https://api.spotify.com/v1/me/player/previous',
+            {},
+            { headers: { 'Authorization': `Bearer ${token}` } }
+        );
+        res.json({ success: true });
+        console.log('✅ Previous');
+    } catch (error) {
+        console.error('❌', error.response?.data || error.message);
+        res.status(error.response?.status || 500).json({ error: error.message });
+    }
+});
+
+// Volume
+app.post('/spotify/me/player/volume', async (req, res) => {
+    const volume = req.query.volume_percent;
+    console.log('📥 Volume:', volume);
+    const token = await ensureToken();
+    if (!token) return res.status(401).json({ error: 'No token' });
+    
+    try {
+        await axios.put(
+            `https://api.spotify.com/v1/me/player/volume?volume_percent=${volume}`,
+            {},
+            { headers: { 'Authorization': `Bearer ${token}` } }
+        );
+        res.json({ success: true });
+        console.log('✅ Volume:', volume);
+    } catch (error) {
+        console.error('❌', error.response?.data || error.message);
+        res.status(error.response?.status || 500).json({ error: error.message });
+    }
+});
+
+// Devices
+app.get('/spotify/me/player/devices', async (req, res) => {
+    console.log('📥 Devices');
+    const token = await ensureToken();
+    if (!token) return res.status(401).json({ error: 'No token' });
+    
+    try {
+        const response = await axios.get(
+            'https://api.spotify.com/v1/me/player/devices',
+            { headers: { 'Authorization': `Bearer ${token}` } }
+        );
+        res.json(response.data);
+        console.log('✅ Devices:', response.data.devices?.length);
+    } catch (error) {
+        console.error('❌', error.response?.data || error.message);
+        res.status(error.response?.status || 500).json({ error: error.message });
+    }
+});
+
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🎵 Spotify Proxy running on port ${PORT}`);
-    console.log(`🌍 Ready to accept connections`);
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-    console.log('👋 SIGTERM received, shutting down gracefully');
-    process.exit(0);
+    console.log('🌍 Ready to accept connections');
+    
+    // Auto-refresh token on startup
+    doRefreshToken().then(() => {
+        console.log('🚀 Ready!');
+    });
 });
