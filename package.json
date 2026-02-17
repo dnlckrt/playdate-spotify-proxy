@@ -1,7 +1,7 @@
 {
   "name": "playdate-spotify-proxy",
-  "version": "1.0.0",
-  "description": "Spotify proxy for Playdate on Render.com",
+  "version": "2.0.0",
+  "description": "Spotify Proxy für Playdate",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -10,8 +10,5 @@
     "express": "^4.18.2",
     "axios": "^1.6.0",
     "cors": "^2.8.5"
-  },
-  "engines": {
-    "node": "18.x"
   }
 }
